@@ -4,13 +4,25 @@ from datetime import date, timedelta
 
 import httpx
 from actual import Actual
-from actual.queries import create_transaction, get_accounts
+from actual.models import Payees
+from actual.queries import create_payee, create_transaction, get_accounts
+from sqlmodel import select
 
 from .config import load_config
 from .gocardless import get_transactions
 from .nbp import get_rate
 
 logger = logging.getLogger(__name__)
+
+
+def _get_or_create_payee(session, name: str) -> Payees | None:
+    """actualpy's get_or_create_payee uses one_or_none() which crashes on duplicate payees."""
+    if not name:
+        return None
+    payee = session.exec(
+        select(Payees).filter(Payees.name == name, Payees.tombstone == 0)
+    ).first()
+    return payee or create_payee(session, name)
 
 
 async def run_sync(days_back: int = 30) -> None:
@@ -58,7 +70,7 @@ async def run_sync(days_back: int = 30) -> None:
                         actual.session,
                         date=tx_date,
                         account=accounts[account_cfg.actual_id],
-                        payee=payee,
+                        payee=_get_or_create_payee(actual.session, payee),
                         notes=notes,
                         amount=round(pln_amount * 100),  # grosze
                         imported_id=tx["transactionId"],
