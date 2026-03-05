@@ -1,7 +1,11 @@
+import asyncio
+import logging
 import os
 import time
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://bankaccountdata.gocardless.com/api/v2"
 
@@ -29,13 +33,20 @@ async def _get_token(client: httpx.AsyncClient) -> str:
 
 
 async def get_transactions(
-    client: httpx.AsyncClient, account_id: str, date_from: str
+    client: httpx.AsyncClient, account_id: str, date_from: str, retries: int = 3
 ) -> list[dict]:
     token = await _get_token(client)
-    r = await client.get(
-        f"{BASE_URL}/accounts/{account_id}/transactions/",
-        params={"date_from": date_from},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    r.raise_for_status()
-    return r.json()["transactions"]["booked"]
+    for attempt in range(retries):
+        r = await client.get(
+            f"{BASE_URL}/accounts/{account_id}/transactions/",
+            params={"date_from": date_from},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if r.status_code == 429:
+            wait = int(r.headers.get("Retry-After", 60 * (attempt + 1)))
+            logger.warning(f"Rate limited on {account_id}, waiting {wait}s...")
+            await asyncio.sleep(wait)
+            continue
+        r.raise_for_status()
+        return r.json()["transactions"]["booked"]
+    raise RuntimeError(f"GoCardless rate limit exceeded for {account_id}")

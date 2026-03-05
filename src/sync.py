@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import date, timedelta
@@ -78,5 +79,6 @@ async def run_sync(days_back: int = 30) -> None:
 
                 actual.commit()
                 logger.info(f"{account_cfg.name}: {added} transactions imported")
+                await asyncio.sleep(2)
 
     logger.info("Sync complete")
