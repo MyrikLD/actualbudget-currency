@@ -1,34 +1,30 @@
 import asyncio
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date
 
 import httpx
 from actual import Actual
-from actual.database import Payees, select
-from actual.queries import create_payee, create_transaction, get_accounts
+from actual.database import Transactions, int_to_date, select
+from actual.queries import get_accounts
 
 from .config import load_config
-from .gocardless import get_transactions
 from .nbp import get_rate
 
 logger = logging.getLogger(__name__)
 
-
-def _get_or_create_payee(session, name: str) -> Payees | None:
-    """actualpy's get_or_create_payee uses one_or_none() which crashes on duplicate payees."""
-    if not name:
-        return None
-    payee = session.exec(
-        select(Payees).filter(Payees.name == name, Payees.tombstone == 0)
-    ).first()
-    return payee or create_payee(session, name)
+CONVERTED_MARKER = "PLN @"
 
 
-async def run_sync(days_back: int = 30) -> None:
+async def run_sync() -> None:
     config = load_config()
-    date_from = (date.today() - timedelta(days=days_back)).isoformat()
-    logger.info(f"Sync from {date_from}")
+    foreign_accounts = [a for a in config.accounts if a.currency != "PLN"]
+
+    if not foreign_accounts:
+        logger.info("No foreign currency accounts, nothing to do")
+        return
+
+    logger.info(f"Converting {len(foreign_accounts)} accounts to PLN")
 
     async with httpx.AsyncClient(timeout=30) as client:
         with Actual(
@@ -41,44 +37,39 @@ async def run_sync(days_back: int = 30) -> None:
 
             accounts = {a.id: a for a in get_accounts(actual.session)}
 
-            for account_cfg in config.accounts:
+            for account_cfg in foreign_accounts:
                 if account_cfg.actual_id not in accounts:
-                    logger.warning(f"Account {account_cfg.actual_id!r} not found in Actual, skipping")
+                    logger.warning(f"Account {account_cfg.actual_id!r} not found, skipping")
                     continue
 
-                logger.info(f"Syncing {account_cfg.name} ({account_cfg.currency})")
-                transactions = await get_transactions(client, account_cfg.gocardless_id, date_from)
-                logger.info(f"Got {len(transactions)} transactions")
+                logger.info(f"Processing {account_cfg.name} ({account_cfg.currency})")
 
-                added = 0
-                for tx in transactions:
-                    tx_currency = tx["transactionAmount"]["currency"]
-                    tx_amount = float(tx["transactionAmount"]["amount"])
-                    tx_date = date.fromisoformat(tx["bookingDate"])
-                    payee = tx.get("creditorName") or tx.get("debtorName") or ""
-                    memo = tx.get("remittanceInformationUnstructured", "")
-
-                    if tx_currency == "PLN":
-                        pln_amount = tx_amount
-                        notes = memo
-                    else:
-                        rate = await get_rate(client, tx_currency, tx["bookingDate"])
-                        pln_amount = tx_amount * rate
-                        notes = f"{tx_currency} {tx_amount:.2f} @ {rate:.4f}" + (f" | {memo}" if memo else "")
-
-                    create_transaction(
-                        actual.session,
-                        date=tx_date,
-                        account=accounts[account_cfg.actual_id],
-                        payee=_get_or_create_payee(actual.session, payee),
-                        notes=notes,
-                        amount=round(pln_amount * 100),  # grosze
-                        imported_id=tx["transactionId"],
+                txs = actual.session.exec(
+                    select(Transactions).where(
+                        Transactions.account_id == account_cfg.actual_id,
+                        Transactions.tombstone == 0,
                     )
-                    added += 1
+                ).all()
+
+                updated = 0
+                for tx in txs:
+                    # Пропускаем уже сконвертированные
+                    if tx.notes and CONVERTED_MARKER in tx.notes:
+                        continue
+
+                    tx_date = int_to_date(tx.date).isoformat()
+                    rate = await get_rate(client, account_cfg.currency, tx_date)
+
+                    original = tx.amount / 100
+                    pln = round(original * rate * 100)
+
+                    note = f"{account_cfg.currency} {original:.2f} @ {rate:.4f}"
+                    tx.notes = f"{note} | {tx.notes}" if tx.notes else note
+                    tx.amount = pln
+                    updated += 1
 
                 actual.commit()
-                logger.info(f"{account_cfg.name}: {added} transactions imported")
-                await asyncio.sleep(2)
+                logger.info(f"{account_cfg.name}: {updated} transactions converted")
+                await asyncio.sleep(1)
 
     logger.info("Sync complete")

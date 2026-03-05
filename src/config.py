@@ -9,7 +9,6 @@ Currency = Literal["PLN", "USD", "EUR"]
 
 class AccountConfig(BaseModel):
     name: str
-    gocardless_id: str
     actual_id: str
     currency: Currency
 
