@@ -19,7 +19,10 @@ class Config(BaseModel):
 
 
 def load_config() -> Config:
-    path = os.getenv("CONFIG_PATH", "/config/accounts.yaml")
-    with open(path) as f:
-        data = yaml.safe_load(f)
+    if raw := os.getenv("ACCOUNTS_CONFIG"):
+        data = yaml.safe_load(raw)
+    else:
+        path = os.getenv("CONFIG_PATH", "/config/accounts.yaml")
+        with open(path) as f:
+            data = yaml.safe_load(f)
     return Config(**data)
