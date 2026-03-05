@@ -46,7 +46,7 @@ async def run_sync() -> None:
 
                 txs = actual.session.exec(
                     select(Transactions).where(
-                        Transactions.account_id == account_cfg.actual_id,
+                        Transactions.acct == account_cfg.actual_id,
                         Transactions.tombstone == 0,
                     )
                 ).all()
