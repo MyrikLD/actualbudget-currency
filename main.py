@@ -41,6 +41,23 @@ def health():
     return {"ok": True}
 
 
+@app.get("/accounts")
+async def list_accounts():
+    """Список аккаунтов из Actual Budget с их ID — для проверки маппинга."""
+    import os
+    from actual import Actual
+    from actual.queries import get_accounts
+
+    with Actual(
+        base_url=os.environ["ACTUAL_SERVER_URL"],
+        password=os.environ["ACTUAL_PASSWORD"],
+        file=os.environ["ACTUAL_BUDGET_NAME"],
+        data_dir="/data/actual-sync",
+    ) as actual:
+        actual.download_budget()
+        return [{"id": a.id, "name": a.name} for a in get_accounts(actual.session)]
+
+
 @app.post("/sync")
 async def sync():
     asyncio.create_task(run_sync())
