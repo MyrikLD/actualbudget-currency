@@ -1,0 +1,15 @@
+accounts:
+  - name: "PKO PLN"
+    gocardless_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    actual_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    currency: PLN
+
+  - name: "Revolut USD"
+    gocardless_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    actual_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    currency: USD
+
+  - name: "Revolut EUR"
+    gocardless_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    actual_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    currency: EUR
