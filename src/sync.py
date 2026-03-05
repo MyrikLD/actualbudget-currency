@@ -4,9 +4,8 @@ from datetime import date, timedelta
 
 import httpx
 from actual import Actual
-from actual.models import Payees
+from actual.database import Payees, select
 from actual.queries import create_payee, create_transaction, get_accounts
-from sqlmodel import select
 
 from .config import load_config
 from .gocardless import get_transactions
