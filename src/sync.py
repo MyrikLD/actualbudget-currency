@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from datetime import date
+import re
 
 import httpx
 from actual import Actual
@@ -13,7 +13,38 @@ from .nbp import get_rate
 
 logger = logging.getLogger(__name__)
 
-CONVERTED_MARKER = "PLN @"
+CONVERTED_MARKER = " @ "
+_CONVERSION_RE = re.compile(r"^(\w+) (-?[\d.]+) @ ([\d.]+)")
+
+
+def _repair_double_converted(txs: list, currency: str) -> int:
+    fixed = 0
+    for tx in txs:
+        if not tx.notes or CONVERTED_MARKER not in tx.notes:
+            continue
+
+        parts = tx.notes.split(" | ", 1)
+        if len(parts) < 2:
+            continue
+
+        m1 = _CONVERSION_RE.match(parts[0])
+        m2 = _CONVERSION_RE.match(parts[1])
+        if not m1 or not m2:
+            continue
+        if m1.group(1) != currency or m2.group(1) != currency:
+            continue
+
+        pln_amount = float(m1.group(2))
+        orig_amount = float(m2.group(2))
+        rate = float(m1.group(3))
+
+        # Двойная конвертация: первый сегмент ≈ второй * курс
+        if abs(pln_amount - round(orig_amount * rate, 2)) < 0.02:
+            tx.amount = round(orig_amount * rate * 100)
+            tx.notes = parts[1]
+            fixed += 1
+
+    return fixed
 
 
 async def run_sync() -> None:
@@ -50,6 +81,10 @@ async def run_sync() -> None:
                         Transactions.tombstone == 0,
                     )
                 ).all()
+
+                repaired = _repair_double_converted(txs, account_cfg.currency)
+                if repaired:
+                    logger.info(f"{account_cfg.name}: {repaired} double-converted transactions repaired")
 
                 updated = 0
                 for tx in txs:
